@@ -89,8 +89,12 @@ if prompt := st.chat_input("Ask a multi-part question..."):
         config = {"configurable": {"thread_id": st.session_state.thread_id}}
         
         # Prepare the input for the graph
-        # We pass the new prompt as a HumanMessage
-        graph_input = {"messages": [HumanMessage(content=prompt)]}
+        # We pass the new prompt as a HumanMessage with initial iteration count
+        graph_input = {
+            "messages": [HumanMessage(content=prompt)],
+            "iteration_count": 0,
+            "tool_responses": []
+        }
         
         final_answer = ""
         
@@ -126,6 +130,8 @@ if prompt := st.chat_input("Ask a multi-part question..."):
                     if isinstance(last_message, AIMessage):
                         # Extract text content, handling structured formats
                         final_answer = extract_text_content(last_message.content)
+
+            print(f"Final answer: {final_answer}")
 
             # Write the final answer
             if final_answer:

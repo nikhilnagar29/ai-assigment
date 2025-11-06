@@ -56,7 +56,8 @@ class AgentState(TypedDict):
     chat_history: list
     messages: Annotated[list, lambda x, y: x + y]
     tool_calls: list
-    tool_responses: list
+    tool_responses: Annotated[list, lambda x, y: x + y]  # Accumulate tool responses
+    iteration_count: int  # Track iterations to prevent infinite loops
 
 
 # --- 3. Define the Graph Nodes ---
@@ -131,51 +132,107 @@ def router_node(state: AgentState):
 
 # --- NODE 2: The Agent Node (Tool Caller) ---
 # This node uses the main LLM to decide *how* to call the tools
+# --- NODE 2: The Agent Node (Tool Caller) ---
+# This node uses the main LLM to decide *how* to call the tools
 def agent_node(state: AgentState):
     """
-    The main "worker" node. It takes the list of tool calls from the router,
-    decides what inputs to use, and then calls them.
+    The main "worker" node. It processes tool results and either calls more tools
+    or provides a final answer.
     """
     print("--- CALLING AGENT/TOOL NODE ---")
     
-    # We need a prompt that tells the LLM *how* to use the tools
-    agent_prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful assistant. You must use the tools provided to answer the user's request."),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="tool_responses")
-    ])
+    # Check iteration count to prevent infinite loops
+    iteration_count = state.get('iteration_count', 0)
+    MAX_ITERATIONS = 5  # Maximum number of tool call iterations
     
-    # Bind the tools to the LLM
-    agent_llm = llm.bind_tools(tools)
+    if iteration_count >= MAX_ITERATIONS:
+        print(f"⚠️ Maximum iterations ({MAX_ITERATIONS}) reached. Forcing final answer.")
+        # Force a final answer
+        final_response = AIMessage(
+            content="I apologize, but I'm having difficulty processing your request. Please try rephrasing your question or breaking it into smaller parts."
+        )
+        return {"messages": [final_response], "tool_calls": []}
     
-    # Create the agent chain
-    agent_chain = agent_prompt | agent_llm
-    
-    # Get the tool responses from the previous state
+    # Build the conversation context
+    messages = state.get('messages', [])
     tool_responses = state.get('tool_responses', [])
     
+    # Check if we have tool responses
+    has_tool_responses = len(tool_responses) > 0
+    
+    # Combine messages and tool responses for context
+    chat_history = messages + tool_responses
+
+    # --- THIS IS THE NEW LOGIC ---
+    if has_tool_responses:
+        # We have tool results. Our ONLY job is to synthesize an answer.
+        # We do NOT bind tools, so the LLM is *forced* to answer.
+        print("Agent is in 'Answering Mode'. Tools are disabled.")
+        system_prompt = """You are a helpful assistant for BMW. Your job is to answer the user's question using the available tools.
+
+Available tools:
+- customer_feedback_search: Use this for any question about customer feedback, opinions, or complaints.
+- product_details_search: Use this for any question about product features or technical specs.
+- SQL tools: Query the database for sales, customers, invoices, etc.
+
+IMPORTANT Instructions:
+1. **You MUST assume the user is asking about the BMW iX** if they ask about "the car", "BMW car", "bmq car", or any other general car question.
+2. ALWAYS try to use 'customer_feedback_search' or 'product_details_search' for any question about feedback, features, specs, or the car.
+3. Call the appropriate tool(s) to get information.
+"""
+        agent_prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history")
+        ])
+        
+        # Note: We use the base 'llm', NOT 'llm.bind_tools(tools)'
+        agent_chain = agent_prompt | llm 
+        
+    else:
+        # This is the FIRST run. We need to call tools.
+        print("Agent is in 'Tool-Calling Mode'.")
+        system_prompt = """You are a helpful assistant for BMW. Use the available tools to answer the user's question.
+
+Available tools:
+- customer_feedback_search: Search for customer feedback about BMW iX
+- product_details_search: Find product specifications and features
+- SQL tools: Query the database for sales, customers, invoices, etc.
+
+Instructions:
+1. Call the appropriate tool(s) to get information.
+"""
+        agent_prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history")
+        ])
+        
+        # We bind the tools to the LLM
+        agent_llm = llm.bind_tools(tools)
+        agent_chain = agent_prompt | agent_llm
+    # --- END OF NEW LOGIC ---
+
+    
     # Call the agent
-    # We pass the full message history and any tool responses
     response_message = agent_chain.invoke({
-        "messages": state['messages'] + tool_responses,
-        "tool_responses": []
+        "chat_history": chat_history
     })
     
-    # If the LLM responded with tool calls, we return them
+    # If the LLM responded with tool calls, we return them (but increment iteration count)
     if response_message.tool_calls:
-        # Extract tool call names for logging (handle both dict and object formats)
-        tool_names = []
-        for tc in response_message.tool_calls:
-            if isinstance(tc, dict):
-                tool_names.append(tc.get('name', 'unknown'))
-            else:
-                tool_names.append(getattr(tc, 'name', str(tc)))
-        print(f"Agent decided to call tools: {tool_names}")
-        return {"tool_calls": response_message.tool_calls}
+        # This should now only happen if 'has_tool_responses' was False
+        tool_names = [tc.get('name', 'unknown') if isinstance(tc, dict) else getattr(tc, 'name', 'unknown') for tc in response_message.tool_calls]
+        print(f"Agent decided to call tools: {tool_names} (iteration {iteration_count + 1})")
+        
+        return {
+            "tool_calls": response_message.tool_calls,
+            "iteration_count": iteration_count + 1
+        }
     
     # If the LLM responded with a final answer, we return it
     print("Agent provided a final answer.")
-    return {"messages": [response_message]}
+    return {"messages": [response_message], "tool_calls": []}
+
+
 
 
 # --- NODE 3: The Tool Executor Node ---
@@ -185,7 +242,7 @@ def tool_executor_node(state: AgentState):
     """
     print("--- CALLING TOOL EXECUTOR NODE ---")
     tool_map = {tool.name: tool for tool in tools}
-    tool_responses = []
+    new_tool_responses = []  # New responses from this execution
     
     for tool_call in state["tool_calls"]:
         # Handle both dict and object formats for tool_calls
@@ -206,30 +263,67 @@ def tool_executor_node(state: AgentState):
         tool_to_call = tool_map.get(tool_name)
         
         if tool_to_call:
-            print(f"Executing tool: {tool_name} with args {tool_args}")
+            # Extract query string from tool_args
+            # Tools expect a string, but agent might pass dict like {'arg1': 'query'} or {'query': 'text'}
+            query_string = None
+            if isinstance(tool_args, dict):
+                # Try common keys
+                query_string = tool_args.get('query') or tool_args.get('arg1') or tool_args.get('input') or tool_args.get('question')
+                # If still None, try to get the first string value
+                if not query_string:
+                    for key, value in tool_args.items():
+                        if isinstance(value, str):
+                            query_string = value
+                            break
+                # If still None, convert dict to string
+                if not query_string:
+                    query_string = str(tool_args)
+            elif isinstance(tool_args, str):
+                query_string = tool_args
+            else:
+                query_string = str(tool_args)
+            
+            print(f"Executing tool: {tool_name} with query: '{query_string[:100]}...'")
             try:
-                # We use .invoke() for tools
-                response = tool_to_call.invoke(tool_args)
-                tool_responses.append(
+                # Invoke tool with the query string
+                response = tool_to_call.invoke(query_string)
+                
+                # Format the response nicely
+                response_text = str(response)
+                if len(response_text) > 1000:
+                    response_text = response_text[:1000] + "... (truncated)"
+                
+                new_tool_responses.append(
                     ToolMessage(
                         tool_call_id=tool_call_id,
-                        content=str(response),
+                        content=f"Tool '{tool_name}' returned: {response_text}",
                         name=tool_name
                     )
                 )
+                print(f"✅ Tool '{tool_name}' executed successfully. Response length: {len(str(response))}")
             except Exception as e:
-                print(f"Error executing tool {tool_name}: {e}")
-                tool_responses.append(
+                error_msg = f"Error executing tool {tool_name}: {e}"
+                print(f"❌ {error_msg}")
+                new_tool_responses.append(
                     ToolMessage(
                         tool_call_id=tool_call_id,
-                        content=f"Error: {e}",
+                        content=f"Error: {error_msg}",
                         name=tool_name
                     )
                 )
         else:
-            print(f"Warning: Tool '{tool_name}' not found in tool map. Available tools: {list(tool_map.keys())}")
+            error_msg = f"Tool '{tool_name}' not found. Available tools: {list(tool_map.keys())}"
+            print(f"⚠️ {error_msg}")
+            new_tool_responses.append(
+                ToolMessage(
+                    tool_call_id=tool_call_id,
+                    content=error_msg,
+                    name=tool_name
+                )
+            )
     
-    return {"tool_responses": tool_responses, "tool_calls": []}
+    # Return new tool responses (they will be accumulated by the reducer)
+    return {"tool_responses": new_tool_responses, "tool_calls": []}
 
 
 # --- 4. Define the Graph Edges (Conditional Logic) ---
