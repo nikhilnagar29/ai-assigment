@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, TypedDict, Annotated, Literal
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
@@ -20,34 +20,34 @@ from core.tools.product_tool import create_product_rag_tool
 # --- 1. Define the Tools ---
 
 # --- SQL Tools ---
-# Connect to the DB
-db = SQLDatabase.from_uri(
-    DB_URL_SQL_AGENT,
-    include_tables=["Artist", "Album", "Track", "Customer", "Employee", "Invoice", "InvoiceLine"]
-)
-
-toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-tools = toolkit.get_tools()  # returns ListSQLDatabaseTool, InfoSQLDatabaseTool, QuerySQLDatabaseTool, etc.
-
-
-# print("Connected to SQL Database for Agent." , db.get_table_names()) ;
-# Create the direct tools
-# list_tables_tool = ListSQLDatabaseTool(db=db)
-# get_schema_tool = InfoSQLDatabaseTool(db=db)
-# run_query_tool = QuerySQLDatabaseTool(db=db)
+# Connect to the DB (with error handling)
+try:
+    db = SQLDatabase.from_uri(
+        DB_URL_SQL_AGENT,
+        include_tables=["Artist", "Album", "Track", "Customer", "Employee", "Invoice", "InvoiceLine"]
+    )
+    toolkit = SQLDatabaseToolkit(db=db, llm=llm)
+    sql_tools = toolkit.get_tools()  # returns ListSQLDatabaseTool, InfoSQLDatabaseTool, QuerySQLDatabaseTool, etc.
+    print("Connected to SQL Database for Agent.")
+except Exception as e:
+    print(f"Warning: Could not connect to database: {e}")
+    print("SQL tools will not be available. Make sure the database is running.")
+    sql_tools = []
 
 # --- RAG Tools ---
-feedback_tool = create_feedback_rag_tool()
-product_tool = create_product_rag_tool()
+try:
+    feedback_tool = create_feedback_rag_tool()
+    product_tool = create_product_rag_tool()
+    rag_tools = [feedback_tool, product_tool]
+except Exception as e:
+    print(f"Warning: Could not create RAG tools: {e}")
+    rag_tools = []
 
 # --- Full Tool List ---
-tools = [
-    list_tables_tool, 
-    get_schema_tool, 
-    run_query_tool, 
-    feedback_tool, 
-    product_tool
-]
+tools = sql_tools + rag_tools
+
+if not tools:
+    raise RuntimeError("No tools available! Please check database connection and vector stores.")
 
 
 # --- 2. Define the Graph State ---
@@ -163,7 +163,14 @@ def agent_node(state: AgentState):
     
     # If the LLM responded with tool calls, we return them
     if response_message.tool_calls:
-        print(f"Agent decided to call tools: {[tc['name'] for tc in response_message.tool_calls]}")
+        # Extract tool call names for logging (handle both dict and object formats)
+        tool_names = []
+        for tc in response_message.tool_calls:
+            if isinstance(tc, dict):
+                tool_names.append(tc.get('name', 'unknown'))
+            else:
+                tool_names.append(getattr(tc, 'name', str(tc)))
+        print(f"Agent decided to call tools: {tool_names}")
         return {"tool_calls": response_message.tool_calls}
     
     # If the LLM responded with a final answer, we return it
@@ -181,9 +188,21 @@ def tool_executor_node(state: AgentState):
     tool_responses = []
     
     for tool_call in state["tool_calls"]:
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
+        # Handle both dict and object formats for tool_calls
+        if isinstance(tool_call, dict):
+            tool_name = tool_call.get("name")
+            tool_args = tool_call.get("args", {})
+            tool_call_id = tool_call.get("id", "unknown")
+        else:
+            # LangChain ToolCall object
+            tool_name = getattr(tool_call, "name", None)
+            tool_args = getattr(tool_call, "args", {})
+            tool_call_id = getattr(tool_call, "id", "unknown")
         
+        if not tool_name:
+            print(f"Warning: Skipping tool call with no name: {tool_call}")
+            continue
+            
         tool_to_call = tool_map.get(tool_name)
         
         if tool_to_call:
@@ -193,7 +212,7 @@ def tool_executor_node(state: AgentState):
                 response = tool_to_call.invoke(tool_args)
                 tool_responses.append(
                     ToolMessage(
-                        tool_call_id=tool_call["id"],
+                        tool_call_id=tool_call_id,
                         content=str(response),
                         name=tool_name
                     )
@@ -202,11 +221,13 @@ def tool_executor_node(state: AgentState):
                 print(f"Error executing tool {tool_name}: {e}")
                 tool_responses.append(
                     ToolMessage(
-                        tool_call_id=tool_call["id"],
+                        tool_call_id=tool_call_id,
                         content=f"Error: {e}",
                         name=tool_name
                     )
                 )
+        else:
+            print(f"Warning: Tool '{tool_name}' not found in tool map. Available tools: {list(tool_map.keys())}")
     
     return {"tool_responses": tool_responses, "tool_calls": []}
 

@@ -15,6 +15,32 @@ except Exception as e:
     st.stop()
 
 
+def extract_text_content(message_content):
+    """
+    Extract text content from message content, handling various formats:
+    - Plain string
+    - List of content blocks (e.g., [{'type': 'text', 'text': '...'}])
+    - Other structured formats
+    """
+    if isinstance(message_content, str):
+        return message_content
+    elif isinstance(message_content, list):
+        # Handle list of content blocks (e.g., from Gemini)
+        text_parts = []
+        for block in message_content:
+            if isinstance(block, dict):
+                if block.get('type') == 'text' and 'text' in block:
+                    text_parts.append(block['text'])
+                elif 'text' in block:
+                    text_parts.append(block['text'])
+            elif isinstance(block, str):
+                text_parts.append(block)
+        return '\n'.join(text_parts) if text_parts else str(message_content)
+    else:
+        # Fallback: convert to string
+        return str(message_content)
+
+
 # --- Page Config ---
 st.set_page_config(page_title="RAG Q&A System")
 st.title("RAG Q&A System (LangGraph) 🚀")
@@ -79,8 +105,16 @@ if prompt := st.chat_input("Ask a multi-part question..."):
                 
                 if "tool_calls" in chunk and chunk["tool_calls"]:
                     # This is the output of the Agent node
-                    tools = [tc["name"] for tc in chunk["tool_calls"]]
-                    thinking_container.markdown(f"🧠 Calling tool(s): **{', '.join(tools)}**")
+                    # Handle different tool_call formats
+                    tool_names = []
+                    for tc in chunk["tool_calls"]:
+                        if isinstance(tc, dict):
+                            tool_names.append(tc.get("name", "unknown"))
+                        else:
+                            # LangChain tool call object
+                            tool_names.append(getattr(tc, "name", str(tc)))
+                    if tool_names:
+                        thinking_container.markdown(f"🧠 Calling tool(s): **{', '.join(tool_names)}**")
                 
                 elif "tool_responses" in chunk and chunk["tool_responses"]:
                     # This is the output of the Tool Executor
@@ -90,14 +124,18 @@ if prompt := st.chat_input("Ask a multi-part question..."):
                     # This is the final answer from the agent
                     last_message = chunk["messages"][-1]
                     if isinstance(last_message, AIMessage):
-                        final_answer = last_message.content
+                        # Extract text content, handling structured formats
+                        final_answer = extract_text_content(last_message.content)
 
             # Write the final answer
-            response_container.markdown(final_answer)
-            thinking_container.empty()
-            
-            # Add the final answer to session history
-            st.session_state.messages.append({"role": "assistant", "content": final_answer})
+            if final_answer:
+                response_container.markdown(final_answer)
+                thinking_container.empty()
+                
+                # Add the final answer to session history
+                st.session_state.messages.append({"role": "assistant", "content": final_answer})
+            else:
+                thinking_container.markdown("⚠️ No response received from agent.")
 
         except Exception as e:
             st.error(f"An error occurred: {e}")

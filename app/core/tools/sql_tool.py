@@ -1,7 +1,7 @@
-from langchain_core.tools import Tool  # <-- FIX 1
+from langchain_core.tools import Tool
 from langchain_community.utilities import SQLDatabase
 from langchain_experimental.sql import SQLDatabaseToolkit
-from langchain.agents import create_sql_agent
+from langchain_experimental.agents import create_sql_agent  # <-- Fixed: Use langchain_experimental
 from core.config import llm, DB_URL_SQL_AGENT
 
 # The 7 most important tables for business questions.

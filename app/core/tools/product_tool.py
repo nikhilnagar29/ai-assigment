@@ -1,6 +1,6 @@
 import os
-from langchain_core.tools import Tool  # <-- FIX 1
-from langchain.chains.retrieval_qa import RetrievalQA  # <-- FIX 2
+from langchain_core.tools import Tool
+from langchain_classic.chains.retrieval_qa.base import RetrievalQA  # <-- Fixed: Use langchain_classic for chains
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from core.config import llm, embeddings, PRODUCT_VECTOR_STORE_PATH
