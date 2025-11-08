@@ -1,8 +1,6 @@
 import os
-from langchain.tools import tool, BaseTool
-from langchain.chains import create_retrieval_chain
-from langchain_core.prompts import ChatPromptTemplate
-
+from langchain_core.tools import Tool  # <-- FIX 1
+from langchain.chains.retrieval_qa import RetrievalQA  # <-- FIX 2
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from core.config import llm, embeddings, FEEDBACK_VECTOR_STORE_PATH
@@ -25,10 +23,9 @@ def create_feedback_rag_tool():
     )
     
     # 2. Create a retriever
-    retriever = db.as_retriever(search_kwargs={"k": 5}) # Get top 5 results
+    retriever = db.as_retriever(search_kwargs={"k": 5})
 
     # 3. Create a custom prompt
-    # This prompt is designed to use the metadata in your feedback file.
     PROMPT_TEMPLATE = """
 You are a helpful assistant for BMW. Your task is to find and summarize customer feedback.
 Answer the user's question based *only* on the following feedback documents.
@@ -51,31 +48,18 @@ ANSWER:
     )
 
     # 4. Create the RAG (RetrievalQA) chain
-    # This chain will "stuff" the retrieved documents into the prompt
-    prompt = ChatPromptTemplate.from_template("Your prompt here")
-
-    retriever = vectorstore.as_retriever()
-
-    rag_chain = create_retrieval_chain(
-        retriever,
-        llm,
-    )
-
-
     rag_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
         chain_type_kwargs={"prompt": prompt},
-        return_source_documents=True # This lets us see what it found
+        return_source_documents=True
     )
     
     # 5. Create the final Tool
-    # The 'description' is critical - it tells the LangGraph agent
-    # *when* to use this tool.
-    feedback_tool = tool(
+    feedback_tool = Tool(
         name="customer_feedback_search",
-        func=lambda q: rag_chain.invoke(q)["result"], # We only want the final answer
+        func=lambda q: rag_chain.invoke(q)["result"],
         description=(
             "Use this tool to search for customer feedback, opinions, complaints, or sentiments "
             "about the BMW iX, its features (e.g., Sky Lounge, charging, range), or the "

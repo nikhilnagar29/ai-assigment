@@ -1,7 +1,6 @@
 import os
-from langchain.tools import Tool
-from langchain.chains.retrieval_qa.base import RetrievalQA
-
+from langchain_core.tools import Tool  # <-- FIX 1
+from langchain.chains.retrieval_qa import RetrievalQA  # <-- FIX 2
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from core.config import llm, embeddings, PRODUCT_VECTOR_STORE_PATH
@@ -27,7 +26,7 @@ def create_product_rag_tool():
     )
     
     # 2. Create a retriever
-    retriever = db.as_retriever(search_kwargs={"k": 5}) # Get top 5 pages
+    retriever = db.as_retriever(search_kwargs={"k": 5})
 
     # 3. Create a custom prompt for technical specs
     PROMPT_TEMPLATE = """
