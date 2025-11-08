@@ -1,0 +1,82 @@
+Text, Sentiment, Source, Date/Time, User ID, Location, Confidence Score
+"I love the Sky Lounge panoramic roof — it makes the cabin feel like a boutique hotel.", Positive, Twitter, 2025-10-02 09:12:34, @drive_bella, London, 0.92
+"Charging to 80% in around 30 minutes really changed my long-trip plans — impressive.", Positive, Reddit, 2025-10-03 14:04:11, u/ev_tripper, Munich, 0.88
+"Interior materials look premium and I like that BMW uses recycled ECONYL — feels good to own.", Positive, Instagram, 2025-10-04 18:30:05, @eco.driver, Stockholm, 0.90
+"Parking Assistant Plus saved me twice this week — the cameras + reversing assistant are superb.", Positive, BMWForum, 2025-10-05 11:22:40, forumUser_92, Berlin, 0.87
+"Ride is smooth and powerful — 0-100 in 6.1s is no joke, fun to drive.", Positive, YouTubeReview, 2025-10-06 16:10:02, reviewer_mike, Los Angeles, 0.86
+"Some of the digital menus are confusing at first — the Curved Display is beautiful but menu nesting is deep.", Neutral, Reddit, 2025-10-07 09:50:22, u/ui_newbie, San Francisco, 0.72
+"The virtual assistant sometimes misunderstands commands; climate control failed twice.", Negative, Twitter, 2025-10-07 12:05:13, @techtester, New York, 0.65
+"I expected better range in winter — real world consumption higher than brochure in cold weather.", Negative, Facebook, 2025-10-08 08:45:50, Raj_pilot, Toronto, 0.70
+"Warranty and service packages were explained clearly by dealer — smooth purchase experience.", Positive, Dealer Survey, 2025-10-08 13:20:11, dealer_anna, Gurgaon, 0.83
+"Rear legroom is amazing — perfect for family trips, everyone loved the lounge-like rear.", Positive, TripReport, 2025-10-09 19:17:44, family_trip22, Paris, 0.89
+"One-pedal mode (B) is great around town, but I sometimes miss the natural creep in traffic.", Neutral, Reddit, 2025-10-10 07:09:30, u/city_commute, Bangalore, 0.68
+"Expensive accessories and optional packages make a big dent — base is nice but options add up.", Negative, CarReview, 2025-10-10 15:55:01, car_critic88, Mumbai, 0.74
+"Sky Lounge tinting works well — great for sunny drives and privacy with a tap.", Positive, Instagram, 2025-10-11 10:05:19, @sunseeker, Dubai, 0.91
+"Some sensors behaved oddly in heavy rain — assisted parking warned of issues.", Negative, OnlineForum, 2025-10-11 21:30:07, forum_worx, Chennai, 0.62
+"Driver assistance feels reassuring on highway — lane change assistant is very calm and safe.", Positive, YouTubeComment, 2025-10-12 08:44:55, @safe_driver, Melbourne, 0.85
+"Infotainment connectivity occasional Bluetooth dropouts with older phones.", Negative, Twitter, 2025-10-12 12:26:41, @oldphoneuser, Boston, 0.67
+"Loved the renewable-energy production note — feels like BMW is serious about sustainability.", Positive, LinkedIn, 2025-10-13 09:30:00, eco_prof, Munich, 0.88
+"Practical charging options at home with BMW Wallbox made ownership simple.", Positive, OwnerSurvey, 2025-10-13 18:02:20, owner_ron, San Jose, 0.84
+"Interior vents are effective but HVAC can be slow to heat on very cold mornings.", Negative, Reddit, 2025-10-14 07:12:58, u/cold_rider, Oslo, 0.69
+"Overall: luxurious, efficient and tech-forward — a solid step into premium EV space.", Positive, BlogPost, 2025-10-14 20:41:33, motoring_jane, London, 0.93
+"Braking feels smooth but the pedal bite is softer than what I expected in a 2.5-ton EV.", Neutral, Reddit, 2025-10-15 09:12:11, u/torque_junkie, Oslo, 0.78
+"Why does the tyre wear so fast?? 9k km and already need replacement. Not cool.", Negative, Twitter, 2025-10-15 12:44:55, @angry_wheels, Sydney, 0.72
+"Interior quality >>> Tesla. But Tesla UI >>> BMW. Wish we could mix both lol.", Mixed, YouTube Comment, 2025-10-16 08:30:21, techcompare88, San Diego, 0.86
+"The HUD is fantastic in sunlight, but disappears when I'm wearing polarized glasses.", Neutral, BMW Forum, 2025-10-16 13:05:03, forumUserM5, Frankfurt, 0.75
+"Charging curve drops fast after 60%, unlike Taycan which holds speed longer. Not ideal for road trips.", Negative, EV Blog, 2025-10-16 18:12:22, author_jules, Amsterdam, 0.83
+"Suspension is buttery on highways but too floaty on broken Indian roads.", Mixed, TeamBHP, 2025-10-17 10:20:35, bhp_rider, Pune, 0.84
+"The hexagonal steering wheel still looks like someone cut a normal wheel by mistake 😂", Neutral, TikTok, 2025-10-17 14:02:11, @car_memes, Dubai, 0.80
+"Compared this to Audi e-tron — BMW wins on interior + tech, Audi wins on ride comfort.", Mixed, LinkedIn Post, 2025-10-17 19:40:51, ev_consultant, Berlin, 0.88
+"Battery temp went up during fast charging and the car reduced power. BMW needs better cooling.", Negative, Reddit, 2025-10-18 07:55:44, u/batterynerd, Toronto, 0.70
+"Rear visibility is not great, but 360 camera helps a lot. Parking Assistant still feels magical.", Positive, Dealer Survey, 2025-10-18 12:15:09, owner_mark, Los Angeles, 0.91
+"Road noise above 110 km/h louder than EQS SUV. Needs better acoustic insulation.", Negative, CarReview, 2025-10-18 16:42:30, autoCritic77, London, 0.82
+"No fake engine sound = good for me, but my dad hates it — says it feels soulless 😅", Mixed, Instagram, 2025-10-18 21:11:55, @silent_driver, Mumbai, 0.73
+"Software update fixed the laggy climate control — BMW OTA is finally doing something right!", Positive, Reddit, 2025-10-19 09:18:17, u/firmware4life, Seattle, 0.89
+"Build quality is solid but one panel gap near the tailgate annoyed me. Expected better at this price.", Negative, Trustpilot, 2025-10-19 13:33:27, reviewer_kai, Stockholm, 0.76
+"Tyre grip on wet roads is excellent. Regenerative braking + AWD combo feels safe.", Positive, EV Owner Group, 2025-10-19 18:10:41, evsafe_tom, Dublin, 0.92
+"Compared to Model X, iX feels more premium but less playful. Depends what you're into.", Neutral, YouTube, 2025-10-20 08:44:00, EVdialogue, Austin, 0.85
+"10–80% charge in 31 mins is true ONLY on perfect charger + perfect conditions. Real world is 40–45 min.", Mixed, Reddit, 2025-10-20 12:56:38, u/travelcharge, Vienna, 0.79
+"Issue: ADAS keeps beeping near construction zones even if I'm centered in lane. Very annoying.", Negative, Online Forum, 2025-10-20 17:22:59, laneBeepHater, Chicago, 0.69
+"Seats are insanely comfortable — did 480 km trip without back pain. Mercedes still softer tho.", Positive, TripReport, 2025-10-21 09:00:10, longDriveLeo, Paris, 0.93
+"Overall a great luxury EV, but BMW needs to stop hiding basic features behind paid packages. Greedy move.", Negative, Facebook, 2025-10-21 14:33:20, car_guy_kent, Manchester, 0.81
+"For a car that claims 425 km WLTP range, the reality is far from it. I barely managed 305 km on a mild 18°C day with mixed highway and city driving. Once you cross 110 km/h, the consumption shoots past 24 kWh/100 km. And don’t even ask about winter – the range drops below 250 km with heater on. BMW should stop advertising the ideal lab-tested numbers like they translate to the real world.", Negative, Reddit, 2025-10-22 11:20:45, u/range_shattered, Toronto, 0.93
+"The charging curve looks great on paper, but the 10–80% in 31 min only works on the perfect charger with perfect temperature. In my 4 DC fast charging sessions, the car throttled to 65 kW after 55% SOC, meaning the remaining 30% took longer than the first 50%. Porsche Taycan and Kia EV6 hold higher speeds much longer. For a premium EV, this feels outdated already.", Negative, EV Forum, 2025-10-22 15:42:17, tech_drive_alex, Amsterdam, 0.90
+"At 2.5 tons, the braking performance is simply not confidence-inspiring. You feel the mass in emergency stops, especially on downhill roads. Regenerative braking is strong in ‘B’ mode, but transitions between regen and friction brakes are jerky. My old Audi e-tron, which is also heavy, somehow feels more predictable and stable under braking. This car needs better brake tuning.", Negative, YouTube Comment, 2025-10-23 09:11:29, autoTruthTV, Chicago, 0.88
+"BMW keeps advertising ‘luxury’ but the software is nowhere near that level. The curved display UI froze twice while navigating, and the voice assistant randomly activates when no one speaks. OTA update took 42 minutes and failed the first time. iDrive 8 has too many layers just to change a basic climate setting. Tesla may look childish in UI, but at least it works instantly.", Negative, Trustpilot, 2025-10-23 13:55:12, robbie_reviews, London, 0.91
+"The suspension feels soft at low speeds and then too floaty at highway speeds. The air suspension tries to mask the weight, but when the road gets uneven, the car feels like a boat. Meanwhile, the Mercedes EQS SUV manages to feel planted and comfortable at the same time. BMW needs to decide if this is a driver’s SUV or a luxury couch, because right now it’s neither.", Negative, Blog Review, 2025-10-23 17:49:22, drivernote, Dubai, 0.86
+"BMW talks a lot about sustainable materials like ECONYL carpets and recycled plastic, which is good, but what about long-term durability? After only 4 months, the driver seat side bolster is already showing wear. That never happened in my 6-year-old Lexus. Sustainability shouldn’t mean fragile.", Negative, Dealer Feedback Form, 2025-10-24 08:05:03, owner_steve, Melbourne, 0.83
+"Driver assistance is borderline dangerous sometimes. Lane-keep assist fights you on wide curves, and parking sensors go crazy in rain. The system also brakes randomly when it misreads a shadow as an obstacle. I paid extra for ‘Parking Assistant Plus’ and now I switch it off most of the time. BMW, please fix software before selling extra features.", Negative, Reddit, 2025-10-24 12:18:55, u/adas_trauma, New York, 0.89
+"The tyres (21-inch) look great but cost €480 each to replace and wear out fast because of the weight and torque. In 8,000 km I have 30% tread left. BMW’s answer? ‘Normal for performance EVs.’ No, it’s not normal. Tesla Model Y Performance still gets 20–25k km from its tyres, and it's faster.", Negative, Twitter, 2025-10-24 16:40:41, @paying4rubber, Paris, 0.87
+"After only 5 fast charges, the battery temp hit 52°C and the car reduced power output. You can literally feel the acceleration slowdown. If this is how BMW manages heat in a €90k EV, I’m worried about long-term battery health. At least Tesla and Hyundai/Kia use proper 800V systems or smarter cooling.", Negative, YouTube Long Review, 2025-10-25 10:03:22, realEVtests, Copenhagen, 0.92
+"The car is quiet but not silent. Above 120 km/h, tyre noise and wind noise are noticeable, especially near the A-pillars. For something marketed as a ‘luxury EV lounge’, it falls short compared to EQS or even Volvo EX90. And BMW still charges extra for acoustic glass… why isn’t that standard at this price?", Negative, Facebook Group, 2025-10-25 14:55:10, luxuryEVbuyer, Los Angeles, 0.90
+"The BMW iX handled like a dream in the snow this morning — the dual motor AWD kept me confident at every turn.", Positive, Owner Forum, 2025-10-09 07:12:33, winter_driver78, Stockholm, 0.90
+"Great cabin, but I often find myself distracted by the curved display — too much screen, not enough simple controls.", Neutral, Reddit, 2025-10-09 09:45:11, u/display_overload, Toronto, 0.75
+"Charging from 10-80% in about 33 minutes on a 350 kW charger — impressive and exactly what BMW promised.", Positive, YouTube Comment, 2025-10-10 11:23:47, evreviewer_uk, London, 0.88
+"Tyre wear is higher than expected — 21-inch wheels are stylish but cost me €500 each and I’m seeing significant tread loss at 9k km.", Negative, Twitter, 2025-10-10 14:56:05, @budget_ev, Munich, 0.82
+"The Sky Lounge panoramic roof gives the back seat a cathedral-like feel, my kids love it.", Positive, Instagram, 2025-10-11 10:02:12, @familyEVlife, Paris, 0.91
+"I love the quiet motor, but above 120 km/h the wind noise increases and it’s not as luxury-silent as I expected.", Neutral, Owner Blog, 2025-10-11 16:40:27, drive_mia, Dubai, 0.77
+"Range dropped to 260 km during a cold morning drive (-5 °C) with heater on — not great for long trips.", Negative, Reddit, 2025-10-12 08:18:19, u/coldtest, Helsinki, 0.80
+"Build quality seems premium — well-fitted panels, good materials — except my tailgate gap is a bit uneven, minor but disappointing.", Negative, Trustpilot, 2025-10-12 12:32:50, reviewr_kim, Seoul, 0.78
+"Infotainment is fast and beautiful, but I miss physical buttons for things like volume and seat heating.", Neutral, BMW Forum, 2025-10-13 09:55:08, forum_guy22, Sydney, 0.74
+"Battery management is excellent: no de-rate on long trip and heat stays under control (ambient 30 °C).", Positive, EV Review Blog, 2025-10-13 14:40:45, evtech_jane, Barcelona, 0.89
+"The hexagonal steering wheel still feels odd — aesthetics over ergonomics in my opinion.", Negative, Reddit, 2025-10-13 17:20:19, u/shape_hater, San Francisco, 0.81
+"ADAS lane-change assist works flawlessly 90% of the time; the 10% where it fumbles are too noticeable though.", Mixed, AutoExpert, 2025-10-14 08:10:32, expert_matt, Berlin, 0.83
+"I’ve driven Model X, EQS and iX — iX wins on cabin feel, loses on tech polish compared to Tesla.", Mixed, YouTube Comment, 2025-10-14 10:44:27, ev_compare, Los Angeles, 0.85
+"Streaming on the curved display is seamless and UI is crisp, but the debut nav map took a wrong turn twice.", Neutral, Instagram, 2025-10-14 13:30:05, @screenaddict, Tokyo, 0.76
+"My chauffeur business loves the rear seats — ventilation, lounge comfort, the kids love the roof. But fuel/charge cost still high.", Positive, Dealer Survey, 2025-10-15 08:44:19, dealer_sing, Singapore, 0.90
+"One-pedal driving is responsive, but I still feel the brake pedal engage hard at low speed — inconsistent.", Neutral, Reddit, 2025-10-15 11:12:48, u/city_brake, Mumbai, 0.73
+"Compared to my old BMW i3 and Tesla Model 3, the iX feels like a grown-up BMW EV — good step up.", Positive, Owner Forum, 2025-10-15 14:50:33, forum_ev_bob, Cape Town, 0.87
+"The rear-view camera sometimes flickers when the ambient light changes — worrying for parking at night.", Negative, Reddit, 2025-10-16 07:22:10, u/garage_night, Melbourne, 0.79
+"I drove 480 km on a single charge (summer, 22 °C) and still had 15% left — range claim works in ideal cases.", Positive, CarBlog, 2025-10-16 12:55:42, auto_writer, Vancouver, 0.91
+"While the recycled interior materials are impressive, the fake engine sound turned off my teen — he says it’s too “video-gamey”.", Negative, Instagram, 2025-10-16 17:33:50, @dad_of_2, Chennai, 0.80
+"Wallbox home charging is convenient and BMW’s home installation process was flawless.", Positive, Owner Email, 2025-10-17 08:20:01, owner_lisa, Portland, 0.88
+" Tyre noise and wind roar at 90+ mph spoil the luxury vibe; I expected better from a 90k EV.", Negative, Facebook Post, 2025-10-17 13:47:11, luxuryseeker, New York, 0.84
+"Ambient lighting in back seat makes night drives feel special — small detail but meaningful.", Positive, YouTube Comment, 2025-10-18 09:05:27, evnight_driver, Milan, 0.90
+"Dealer insisted on optional 22-inch wheels — I regret it: ride is harsher and the tyres cost an arm.", Negative, Reddit, 2025-10-18 11:25:04, u/regret_wheels, Lisbon, 0.82
+"If the car is so premium, why is the Bluetooth with older phones still buggy? My iPhone 11 dropped twice.", Negative, Twitter, 2025-10-18 15:32:47, @tech_veteran, Tokyo, 0.81
+"I love the quiet cabin and the feeling of space, reminds me of a lounge rather than a car.", Positive, Blog Review, 2025-10-19 08:17:33, comfy_rider, Auckland, 0.92
+"The parking assistant plus is clever but it sometimes halts the car too early — I ended up manually taking over.", Neutral, LinkedIn Post, 2025-10-19 13:48:10, mobility_consult, Berlin, 0.78
+"Infotainment lagged during long trip: 90 minutes in, the map slowed and rear-seat streaming froze once.", Negative, Reddit, 2025-10-20 07:55:52, u/long_trip, Montreal, 0.85
+"For the price tag, the maintenance cost quoted by BMW service is higher than I expected — tyres, brakes and software licence add-ons.", Negative, Owner Forum, 2025-10-20 12:35:06, forum_cost_alert, Mumbai, 0.80
+"Compared with Porsche Taycan, the iX is less sporty but more comfortable — depends on what you prefer.", Mixed, YouTube Review, 2025-10-20 18:00:00, ev_driven, San Francisco, 0.86
+"The regenerative braking is strong but the transition to friction braking sometimes feels abrupt when slowing to a stop.", Neutral, Reddit, 2025-10-21 07:10:17, u/smooth_stop, Stockholm, 0.74

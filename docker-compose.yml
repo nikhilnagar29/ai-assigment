@@ -1,0 +1,39 @@
+version: '3.8'
+name: chinook-rag
+
+services:
+  
+  db:
+    image: postgres:15.3-alpine
+    container_name: rag_postgres_db
+    environment:
+      POSTGRES_USER: chinook
+      POSTGRES_PASSWORD: chinook
+      POSTGRES_DB: chinook
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database/Chinook_PostgreSql.sql:/docker-entrypoint-initdb.d/Chinook_PostgreSql.sql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chinook -d chinook"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    container_name: rag_app
+    build: 
+      context: ./app
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app:/app
+    env_file:
+      - ./app/.env
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
