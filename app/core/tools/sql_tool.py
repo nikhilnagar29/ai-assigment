@@ -2,6 +2,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_experimental.sql import SQLDatabaseToolkit
 from langchain.agents import create_sql_agent
 from core.config import llm, DB_URL_SQL_AGENT
+from langchain.tools import Tool
 
 # --- This is the key to fulfilling your "up to 10 tables" requirement ---
 # We will not show the AI all 11 tables. We will only show it the 7
@@ -32,17 +33,27 @@ def create_sql_agent_tool():
     # 2. Create the toolkit
     # This provides the agent with all the functions it needs
     # (e.g., "list tables," "check table schema," "run query")
-    toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-    
-    # 3. Create the SQL Agent
-    # This combines the LLM and the toolkit into a runnable agent
-    sql_agent = create_sql_agent(
+    sql_agent_executor = create_sql_agent(
         llm=llm,
         toolkit=toolkit,
-        verbose=True,  # This will print the agent's "thoughts"
-        agent_type="openai-functions", # This is the standard, most reliable agent type
-        handle_parsing_errors=True # This helps the agent self-correct
+        verbose=True,
+        agent_type="openai-functions",
+        handle_parsing_errors=True
     )
     
-    print("SQL Agent created successfully.")
-    return sql_agent
+    # --- THIS IS THE NEW PART ---
+    # We wrap the agent in a Tool. This is the standard
+    # way to make one agent a "tool" for another agent.
+    sql_tool = Tool(
+        name="chinook_database_sql",
+        # The agent's .invoke method will be called when this tool is used
+        func=sql_agent_executor.invoke, 
+        description=(
+            "Use this tool to answer questions about Chinook database sales, customers, "
+            "artists, albums, tracks, invoices, and employees. "
+            "Input should be a full natural language question."
+        )
+    )
+    
+    print("SQL Agent Tool created successfully.")
+    return sql_tool

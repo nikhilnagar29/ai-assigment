@@ -2,6 +2,7 @@ streamlit
 langchain
 langchain-google-genai
 langchain-community
+langchain-core
 sqlalchemy
 psycopg2-binary
 faiss-cpu
