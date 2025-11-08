@@ -1,6 +1,8 @@
 import os
-from langchain.tools import Tool
-from langchain.chains import RetrievalQA
+from langchain.tools import tool, BaseTool
+from langchain.chains import create_retrieval_chain
+from langchain_core.prompts import ChatPromptTemplate
+
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from core.config import llm, embeddings, FEEDBACK_VECTOR_STORE_PATH
@@ -50,6 +52,16 @@ ANSWER:
 
     # 4. Create the RAG (RetrievalQA) chain
     # This chain will "stuff" the retrieved documents into the prompt
+    prompt = ChatPromptTemplate.from_template("Your prompt here")
+
+    retriever = vectorstore.as_retriever()
+
+    rag_chain = create_retrieval_chain(
+        retriever,
+        llm,
+    )
+
+
     rag_chain = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
@@ -61,7 +73,7 @@ ANSWER:
     # 5. Create the final Tool
     # The 'description' is critical - it tells the LangGraph agent
     # *when* to use this tool.
-    feedback_tool = Tool(
+    feedback_tool = tool(
         name="customer_feedback_search",
         func=lambda q: rag_chain.invoke(q)["result"], # We only want the final answer
         description=(

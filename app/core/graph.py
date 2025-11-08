@@ -7,211 +7,261 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from core.config import llm
-from core.tools.sql_tool import create_sql_agent_tool
+# --- New Imports for direct SQL tools ---
+from langchain_community.utilities import SQLDatabase
+from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
+
+
+
+from core.config import llm, DB_URL_SQL_AGENT
 from core.tools.feedback_tool import create_feedback_rag_tool
 from core.tools.product_tool import create_product_rag_tool
 
 # --- 1. Define the Tools ---
-# Initialize our "expert" tools
-sql_tool = create_sql_agent_tool()
+
+# --- SQL Tools ---
+# Connect to the DB
+db = SQLDatabase.from_uri(
+    DB_URL_SQL_AGENT,
+    include_tables=["Artist", "Album", "Track", "Customer", "Employee", "Invoice", "InvoiceLine"]
+)
+
+toolkit = SQLDatabaseToolkit(db=db, llm=llm)
+tools = toolkit.get_tools()  # returns ListSQLDatabaseTool, InfoSQLDatabaseTool, QuerySQLDatabaseTool, etc.
+
+
+# print("Connected to SQL Database for Agent." , db.get_table_names()) ;
+# Create the direct tools
+# list_tables_tool = ListSQLDatabaseTool(db=db)
+# get_schema_tool = InfoSQLDatabaseTool(db=db)
+# run_query_tool = QuerySQLDatabaseTool(db=db)
+
+# --- RAG Tools ---
 feedback_tool = create_feedback_rag_tool()
 product_tool = create_product_rag_tool()
 
-tools = [sql_tool, feedback_tool, product_tool]
+# --- Full Tool List ---
+tools = [
+    list_tables_tool, 
+    get_schema_tool, 
+    run_query_tool, 
+    feedback_tool, 
+    product_tool
+]
 
 
 # --- 2. Define the Graph State ---
-# This is the "memory" of our graph as it runs.
 class AgentState(TypedDict):
     input: str
     chat_history: list
-    # This `messages` list is the core of the graph's memory
     messages: Annotated[list, lambda x, y: x + y]
-    # This will hold the tool calls our Router decides on
     tool_calls: list
-    # This will hold the outputs from our tools
     tool_responses: list
 
 
 # --- 3. Define the Graph Nodes ---
 
 # --- NODE 1: The ROUTER ---
-# This defines the *output format* we want from our router LLM
 class ToolRouter(BaseModel):
     """A router to select the appropriate tool(s) for a user query."""
-    tool_names: List[Literal["chinook_database_sql", "customer_feedback_search", "product_details_search"]] = Field(
+    tool_names: List[Literal[
+        "sql_db_list_tables", 
+        "sql_db_schema", 
+        "sql_db_query", 
+        "customer_feedback_search", 
+        "product_details_search"
+    ]] = Field(
         ..., 
         description="A list of tool names to call. Only use the tools provided."
     )
 
-# This connects our LLM (Gemini) to the ToolRouter format
 structured_llm_router = llm.with_structured_output(ToolRouter)
 
 def router_node(state: AgentState):
-    """
-    This node analyzes the user's query and decides which tools to call.
-    """
+    """Analyzes the user's query and decides which tools to call."""
     print("--- CALLING ROUTER NODE ---")
     
-    # Build the prompt for the router
+    # We build a prompt from the last human message
+    # This ensures the router only focuses on the *newest* question
+    last_message = state['messages'][-1].content
+    
     prompt = f"""
     You are an expert router. Your job is to analyze the user's query and 
     determine which tool(s) are needed to answer it.
 
     The available tools are:
-    1. chinook_database_sql: For questions about sales, customers, artists, albums, etc.
-    2. customer_feedback_search: For questions about customer opinions, feedback, or complaints.
-    3. product_details_search: For questions about BMW iX product features or technical specs.
+    1. sql_db_list_tables: Use this to see what tables are in the database.
+    2. sql_db_schema: Use this to see the schema of a specific table.
+    3. sql_db_query: Use this to run a SQL query on the database.
+    4. customer_feedback_search: For questions about customer opinions, feedback, or complaints (about BMW iX).
+    5. product_details_search: For questions about BMW iX product features or technical specs.
 
-    User Query: "{state['input']}"
+    User Query: "{last_message}"
 
     Respond with a list of the *exact* tool names required.
-    If a query needs data from multiple sources (e.g., "sales for BMW" and "feedback about it"),
-    you MUST include all relevant tool names.
+    
+    *Examples:*
+    - "How many customers?" -> ["sql_db_list_tables"] (to see tables first)
+    - "What's the schema for the Invoice table?" -> ["sql_db_schema"]
+    - "What do people think of the steering wheel?" -> ["customer_feedback_search"]
+    - "What is the charging time and are there any complaints about it?" -> ["product_details_search", "customer_feedback_search"]
+    - "Show me sales for AC/DC and any feedback for them" -> ["sql_db_list_tables"] (then the agent will use schema and query tools)
+    
+    *IMPORTANT*: For any SQL-related question, the agent's first step should be to list the tables.
+    So, if the query mentions 'sales', 'artists', 'invoices', etc., ALWAYS include 'sql_db_list_tables' in your response.
     """
     
-    # Call the router LLM
-    # We use HumanMessage to ensure it's a new turn
     router_output = structured_llm_router.invoke([HumanMessage(content=prompt)])
     
     tool_calls = []
     if router_output.tool_names:
+        # The agent will decide the input for these tools in the next step
         for tool_name in router_output.tool_names:
-            # We create a "tool call" object for each tool
             tool_calls.append(
                 ToolMessage(
                     tool_call_id=f"call_{tool_name}", 
-                    content=state['input'], # Pass the original query to the tool
+                    content=last_message, # Pass the original query as context
                     name=tool_name
                 )
             )
     
     print(f"Router decided to call: {router_output.tool_names}")
-    # Add the tool calls to the state
-    return {"tool_calls": tool_calls}
+    return {"tool_calls": tool_calls, "messages": []} # Clear messages to avoid loop
 
 
-# --- NODE 2: The TOOL CALLER ---
-def tool_node(state: AgentState):
+# --- NODE 2: The Agent Node (Tool Caller) ---
+# This node uses the main LLM to decide *how* to call the tools
+def agent_node(state: AgentState):
     """
-    This node runs the tools chosen by the router.
-    It runs them in parallel (LangGraph handles this).
+    The main "worker" node. It takes the list of tool calls from the router,
+    decides what inputs to use, and then calls them.
     """
-    print("--- CALLING TOOL NODE ---")
+    print("--- CALLING AGENT/TOOL NODE ---")
+    
+    # We need a prompt that tells the LLM *how* to use the tools
+    agent_prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful assistant. You must use the tools provided to answer the user's request."),
+        MessagesPlaceholder(variable_name="messages"),
+        MessagesPlaceholder(variable_name="tool_responses")
+    ])
+    
+    # Bind the tools to the LLM
+    agent_llm = llm.bind_tools(tools)
+    
+    # Create the agent chain
+    agent_chain = agent_prompt | agent_llm
+    
+    # Get the tool responses from the previous state
+    tool_responses = state.get('tool_responses', [])
+    
+    # Call the agent
+    # We pass the full message history and any tool responses
+    response_message = agent_chain.invoke({
+        "messages": state['messages'] + tool_responses,
+        "tool_responses": []
+    })
+    
+    # If the LLM responded with tool calls, we return them
+    if response_message.tool_calls:
+        print(f"Agent decided to call tools: {[tc['name'] for tc in response_message.tool_calls]}")
+        return {"tool_calls": response_message.tool_calls}
+    
+    # If the LLM responded with a final answer, we return it
+    print("Agent provided a final answer.")
+    return {"messages": [response_message]}
+
+
+# --- NODE 3: The Tool Executor Node ---
+def tool_executor_node(state: AgentState):
+    """
+    This node *only* executes tools.
+    """
+    print("--- CALLING TOOL EXECUTOR NODE ---")
+    tool_map = {tool.name: tool for tool in tools}
     tool_responses = []
     
-    # Find the right tool from our list
-    tool_map = {tool.name: tool for tool in tools}
-
     for tool_call in state["tool_calls"]:
-        tool_name = tool_call.name
+        tool_name = tool_call["name"]
+        tool_args = tool_call["args"]
+        
         tool_to_call = tool_map.get(tool_name)
         
         if tool_to_call:
-            print(f"Running tool: {tool_name}")
-            
-            # Call the tool (e.g., sql_tool.invoke(...))
-            response = tool_to_call.invoke(
-                {"input": tool_call.content} if tool_name == "chinook_database_sql" 
-                else tool_call.content
-            )
-            
-            # Store the tool's output
-            tool_responses.append(
-                ToolMessage(
-                    tool_call_id=tool_call.tool_call_id,
-                    content=str(response),
-                    name=tool_name
+            print(f"Executing tool: {tool_name} with args {tool_args}")
+            try:
+                # We use .invoke() for tools
+                response = tool_to_call.invoke(tool_args)
+                tool_responses.append(
+                    ToolMessage(
+                        tool_call_id=tool_call["id"],
+                        content=str(response),
+                        name=tool_name
+                    )
                 )
-            )
-        else:
-            print(f"Warning: Tool '{tool_name}' not found.")
-            
-    return {"tool_responses": tool_responses}
+            except Exception as e:
+                print(f"Error executing tool {tool_name}: {e}")
+                tool_responses.append(
+                    ToolMessage(
+                        tool_call_id=tool_call["id"],
+                        content=f"Error: {e}",
+                        name=tool_name
+                    )
+                )
+    
+    return {"tool_responses": tool_responses, "tool_calls": []}
 
 
-# --- NODE 3: The FINAL GENERATOR/COMBINER ---
-def final_generator_node(state: AgentState):
+# --- 4. Define the Graph Edges (Conditional Logic) ---
+def should_continue(state: AgentState):
     """
-    This is the final node. It takes all the tool results and the original query
-    and generates a single, clean answer for the user.
+    This is our main conditional edge. It decides whether to
+    call tools again or to finish and go to the final generator.
     """
-    print("--- CALLING FINAL GENERATOR NODE ---")
-    
-    # Get the original query and the tool responses
-    query = state['input']
-    tool_responses = state['tool_responses']
+    if state.get("tool_calls"):
+        # If the agent node produced tool calls, we go execute them
+        return "continue"
+    else:
+        # If the agent node produced a final answer, we are done
+        return "end"
 
-    # Build a prompt for the final answer
-    prompt_context = "Based on your request, here is the information I found:\n\n"
-    
-    # Add each tool's response to the context
-    for response in tool_responses:
-        if response.name == 'chinook_database_sql':
-            prompt_context += f"--- SQL Database Results ---\n{response.content}\n\n"
-        elif response.name == 'customer_feedback_search':
-            prompt_context += f"--- Customer Feedback Results ---\n{response.content}\n\n"
-        elif response.name == 'product_details_search':
-            prompt_context += f"--- Product Details Results ---\n{response.content}\n\n"
-            
-    prompt = f"""
-    You are a final summarizer. Your job is to take the user's original question
-    and the results from different tools, and write a single, clean,
-    and helpful answer.
-
-    Original Question: {query}
-
-    Here is the data you have to work with:
-    {prompt_context}
-
-    Combine this information into a final, comprehensive answer.
-    """
-    
-    # Generate the final response
-    final_response = llm.invoke([HumanMessage(content=prompt)])
-    
-    return {"messages": [AIMessage(content=final_response.content)]}
-
-
-# --- 4. Define the Graph Edges (The Logic) ---
+# --- 5. Assemble the Graph ---
 def create_graph():
     """
     This function assembles all the nodes and edges into the final graph.
     """
     
-    # Initialize the graph
     workflow = StateGraph(AgentState)
 
-    # Add the nodes
-    workflow.add_node("router", router_node)
-    workflow.add_node("tool_node", tool_node)
-    workflow.add_node("final_generator", final_generator_node)
+    # We only have two main nodes now:
+    # 1. "agent": The LLM worker that decides what to do
+    # 2. "tools": The executor that runs the tools
+    workflow.add_node("agent", agent_node)
+    workflow.add_node("tools", tool_executor_node)
 
-    # --- This is the logic you asked for ---
-    
-    # 1. Set the Entry Point
-    workflow.set_entry_point("router")
-    
-    # 2. Add the Conditional Edge
-    # After the "router" node, this edge will call the "tool_node"
-    workflow.add_edge("router", "tool_node")
-    
-    # 3. Add the Final Edge
-    # After the "tool_node" runs, it will always go to the "final_generator"
-    workflow.add_edge("tool_node", "final_generator")
+    # The entry point is the "agent"
+    workflow.set_entry_point("agent")
 
-    # 4. Set the Finish Point
-    workflow.add_edge("final_generator", END)
+    # This is the conditional routing
+    workflow.add_conditional_edges(
+        "agent",
+        should_continue,
+        {
+            "continue": "tools",  # If tools need to be called, go to 'tools'
+            "end": END            # If no tools, end the graph
+        }
+    )
 
-    # 5. Compile the graph
+    # After the "tools" node runs, it *always* goes back to the "agent"
+    # to analyze the results and decide what to do next.
+    workflow.add_edge("tools", "agent")
+
+    # Compile the graph
     print("Compiling LangGraph...")
     graph = workflow.compile(
-        checkpointer=MemorySaver() # This gives our graph memory
+        checkpointer=MemorySaver() # This gives our graph persistent memory
     )
     print("LangGraph compiled successfully.")
     return graph
 
-# --- 5. Create the runnable graph object ---
-# We create this once so our Streamlit app can import it
+# Create the runnable graph object for our app to import
 runnable_graph = create_graph()

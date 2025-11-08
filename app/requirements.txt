@@ -6,7 +6,7 @@ langchain-core
 sqlalchemy
 psycopg2-binary
 faiss-cpu
-langchain-experimental  # <-- Needed for the SQL agent
+# langchain-experimental  # <-- Needed for the SQL agent
 pypdf
 pdfplumber            # <-- To read PDFs
 pandas                # <-- To read CSVs

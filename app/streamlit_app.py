@@ -1,12 +1,14 @@
 import streamlit as st
 import os
 from uuid import uuid4
+from langchain_core.messages import HumanMessage, AIMessage
 
-# Import the final, compiled graph from our new file
+# Import the final, compiled graph
 try:
     from core.graph import runnable_graph
 except ImportError as e:
-    st.error(f"Error importing graph. This is a critical error. {e}")
+    st.error(f"Error importing graph. This is a critical error: {e}")
+    st.info("Please ensure all files are correct and dependencies are installed.")
     st.stop()
 except Exception as e:
     st.error(f"An unexpected error occurred while loading the graph: {e}")
@@ -15,7 +17,7 @@ except Exception as e:
 
 # --- Page Config ---
 st.set_page_config(page_title="RAG Q&A System")
-st.title("RAG Q&A System (Full Agent) 🚀")
+st.title("RAG Q&A System (LangGraph) 🚀")
 
 # --- Sidebar ---
 with st.sidebar:
@@ -31,6 +33,7 @@ with st.sidebar:
         "2. A Product PDF Vector Store (FAISS)\n"
         "3. A Feedback TXT Vector Store (FAISS)"
     )
+    st.warning("Ensure your vector stores are built. If not, run:\n`docker-compose exec app python core/vector_builder.py`")
 
 # --- Session Management ---
 if "messages" not in st.session_state:
@@ -50,45 +53,52 @@ if prompt := st.chat_input("Ask a multi-part question..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # --- This is the "Live Feedback" section ---
+    # --- Live Feedback section ---
     with st.chat_message("assistant"):
-        # Create a container for the "thinking" steps
         thinking_container = st.empty()
-        thinking_container.markdown("🤔 Agent is thinking...")
-        
-        # Create a container for the final answer
         response_container = st.empty()
         
-        # This config connects our chat to the graph's memory
+        thinking_container.markdown("🤔 Agent is thinking...")
+        
         config = {"configurable": {"thread_id": st.session_state.thread_id}}
         
-        # --- Run the Graph! ---
+        # Prepare the input for the graph
+        # We pass the new prompt as a HumanMessage
+        graph_input = {"messages": [HumanMessage(content=prompt)]}
+        
         final_answer = ""
         
-        # st.write_stream will process the output from graph.stream()
-        # graph.stream() yields the output of *each node* as it runs
-        for chunk in runnable_graph.stream(
-            {"input": prompt, "chat_history": st.session_state.messages}, 
-            config=config,
-            stream_mode="values"
-        ):
-            # 'chunk' is the state of the graph *after* a node runs
-            if "messages" in chunk:
-                # This is the final answer from the generator
-                final_answer = chunk["messages"][-1].content
-            elif "tool_calls" in chunk and chunk["tool_calls"]:
-                # This is the output of the Router
-                tools = [tc.name for tc in chunk["tool_calls"]]
-                thinking_container.markdown(f"🧠 Router decided to use: **{', '.join(tools)}**")
-            elif "tool_responses" in chunk and chunk["tool_responses"]:
-                # This is the output of the Tool Node
-                thinking_container.markdown("✅ Tools finished running. Generating final answer...")
+        try:
+            # Use .stream() to get live updates
+            for chunk in runnable_graph.stream(
+                graph_input, 
+                config=config,
+                stream_mode="values" # This mode gives us the full state
+            ):
+                # 'chunk' is the state of the graph *after* a node runs
+                
+                if "tool_calls" in chunk and chunk["tool_calls"]:
+                    # This is the output of the Agent node
+                    tools = [tc["name"] for tc in chunk["tool_calls"]]
+                    thinking_container.markdown(f"🧠 Calling tool(s): **{', '.join(tools)}**")
+                
+                elif "tool_responses" in chunk and chunk["tool_responses"]:
+                    # This is the output of the Tool Executor
+                    thinking_container.markdown("✅ Tools finished. Agent is processing results...")
+                
+                elif "messages" in chunk:
+                    # This is the final answer from the agent
+                    last_message = chunk["messages"][-1]
+                    if isinstance(last_message, AIMessage):
+                        final_answer = last_message.content
 
-        # Write the final answer to its container
-        response_container.markdown(final_answer)
-        
-        # Clear the "thinking" message
-        thinking_container.empty()
-        
-    # Add the final answer to session history
-    st.session_state.messages.append({"role": "assistant", "content": final_answer})
+            # Write the final answer
+            response_container.markdown(final_answer)
+            thinking_container.empty()
+            
+            # Add the final answer to session history
+            st.session_state.messages.append({"role": "assistant", "content": final_answer})
+
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+            thinking_container.empty()

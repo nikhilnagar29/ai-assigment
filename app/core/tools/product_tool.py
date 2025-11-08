@@ -1,6 +1,7 @@
 import os
 from langchain.tools import Tool
-from langchain.chains import RetrievalQA
+from langchain.chains.retrieval_qa.base import RetrievalQA
+
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from core.config import llm, embeddings, PRODUCT_VECTOR_STORE_PATH

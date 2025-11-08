@@ -1,101 +1,105 @@
+import streamlit as st
 import os
-import sys
-import time
-from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader, CSVLoader, DirectoryLoader
+from uuid import uuid4
 
-# --- FIX 1: Python Path Correction ---
-# Add the parent directory ('/app') to the Python path
-# This allows us to import from the 'core' module (e.g., core.config)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# --- Load the Graph ---
+# This is the only import we need from our core logic
 try:
-    from core.config import (
-        embeddings, 
-        PRODUCT_DATA_PATH, 
-        FEEDBACK_DATA_PATH, 
-        PRODUCT_VECTOR_STORE_PATH, 
-        FEEDBACK_VECTOR_STORE_PATH
-    )
-except ImportError:
-    print("❌ Error: Could not import from core.config.")
-    print("Please ensure __init__.py exists in the /app/core/ folder.")
-    sys.exit(1)
+    from core.graph import runnable_graph
+except ImportError as e:
+    st.error(f"Error importing graph. This is a critical error: {e}")
+    st.info("Please ensure all files (core/config.py, core/tools/sql_tool.py, etc.) are created and all requirements are installed.")
+    st.stop()
+except Exception as e:
+    st.error(f"An unexpected error occurred while loading the graph: {e}")
+    st.stop()
 
+# --- Page Config ---
+st.set_page_config(page_title="RAG Q&A System")
+st.title("RAG Q&A System (Full Agent) 🚀")
 
-def load_documents(path, loader_class, **loader_kwargs):
-    """Loads documents from a directory using a specific loader."""
-    loader = DirectoryLoader(
-        path,
-        loader_cls=loader_class,
-        loader_kwargs=loader_kwargs,
-        show_progress=True,
-        use_multithreading=True
-    )
-    return loader.load()
-
-def build_vector_store(store_path: str, documents: list, embedding_model):
-    """
-    Builds and saves a FAISS vector store one document at a time
-    to respect the Gemini free tier rate limits.
-    """
-    try:
-        if not documents:
-            print(f"⚠️ No documents found to build {store_path}.")
-            return
-
-        print(f"Building store for {len(documents)} documents. This will take time...")
-        
-        # --- FIX 2: Rate Limit Handling ---
-        # Embed the *first* document to initialize the store
-        db = FAISS.from_documents([documents[0]], embedding_model)
-        print("Embedded 1 document...")
-        
-        # Loop through the *rest* of the documents, one by one
-        for doc in documents[1:]:
-            try:
-                # Add one doc at a time
-                db.add_documents([doc])
-                # IMPORTANT: Wait 1.5 seconds between each request
-                # This respects the Google API free tier rate limit.
-                time.sleep(1.5) 
-                print("Embedded 1 document...")
-            except Exception as e:
-                print(f"Error embedding document: {e}. Waiting 5 seconds and retrying.")
-                time.sleep(5) # Wait longer if we hit an error
-
-        # Once all documents are added, save the final store to disk
-        db.save_local(store_path)
-        print(f"✅ Successfully built and saved vector store at: {store_path}")
-
-    except Exception as e:
-        print(f"❌ CRITICAL Error building vector store at {store_path}: {e}")
-
-def main():
-    print("Starting vector store build process...")
-
-    # --- 1. Product Vector Store (from PDFs) ---
-    if os.path.exists(PRODUCT_VECTOR_STORE_PATH):
-        print(f"Product vector store already exists at {PRODUCT_VECTOR_STORE_PATH}. Skipping.")
+# --- Sidebar ---
+with st.sidebar:
+    st.subheader("System Status")
+    if os.environ.get("GOOGLE_API_KEY"):
+        st.success("Google API Key loaded.")
     else:
-        print(f"Product vector store not found. Building from {PRODUCT_DATA_PATH}...")
-        product_docs = load_documents(PRODUCT_DATA_PATH, PyPDFLoader)
-        build_vector_store(PRODUCT_VECTOR_STORE_PATH, product_docs, embeddings)
+        st.error("Google API Key not found.")
+    
+    st.info(
+        "This app uses a LangGraph agent to route questions to:\n"
+        "1. A SQL Database (Chinook)\n"
+        "2. A Product PDF Vector Store (FAISS)\n"
+        "3. A Feedback TXT Vector Store (FAISS)"
+    )
+    st.warning("Ensure your vector stores are built. If not, run:\n`docker-compose exec app python core/vector_builder.py`")
 
-    # --- 2. Feedback Vector Store (from TXT/CSV) ---
-    if os.path.exists(FEEDBACK_VECTOR_STORE_PATH):
-        print(f"Feedback vector store already exists at {FEEDBACK_VECTOR_STORE_PATH}. Skipping.")
-    else:
-        print(f"Feedback vector store not found. Building from {FEEDBACK_DATA_PATH}...")
-        feedback_docs = load_documents(
-            FEEDBACK_DATA_PATH, 
-            CSVLoader, 
-            csv_args={"delimiter": ","},
-            source_column="Text"
-        )
-        build_vector_store(FEEDBACK_VECTOR_STORE_PATH, feedback_docs, embeddings)
+# --- Session Management ---
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+# Initialize a unique thread ID for this session
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid4())
+
+# --- Display Chat History ---
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# --- Main Chat Input ---
+if prompt := st.chat_input("Ask a multi-part question..."):
+    # Add user message to state and display
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # --- This is the "Live Feedback" section ---
+    with st.chat_message("assistant"):
+        # Create a container for the "thinking" steps
+        thinking_container = st.empty()
+        thinking_container.markdown("🤔 Agent is thinking...")
+        
+        # Create a container for the final answer
+        response_container = st.empty()
+        
+        # This config connects our chat to the graph's memory (chat history)
+        config = {"configurable": {"thread_id": st.session_state.thread_id}}
+        
+        final_answer = ""
+        
+        # st.write_stream processes the output from graph.stream()
+        # graph.stream() yields the output of *each node* as it runs
+        try:
+            for chunk in runnable_graph.stream(
+                {"input": prompt, "chat_history": []}, # Pass empty history for now
+                config=config,
+                stream_mode="values"
+            ):
+                # 'chunk' is the full state of the graph *after* a node runs
+                
+                if "tool_calls" in chunk and chunk["tool_calls"]:
+                    # This is the output of the Router
+                    tools = [tc.name for tc in chunk["tool_calls"]]
+                    thinking_container.markdown(f"🧠 Router decided to use: **{', '.join(tools)}**")
+                
+                elif "tool_responses" in chunk and chunk["tool_responses"]:
+                    # This is the output of the Tool Node
+                    thinking_container.markdown("✅ Tools finished. Generating final answer...")
+                
+                elif "messages" in chunk:
+                    # This is the final answer from the generator
+                    final_answer = chunk["messages"][-1].content
+
+            # Write the final answer to its container
+            response_container.markdown(final_answer)
             
-    print("Vector store build process complete.")
+            # Clear the "thinking" message
+            thinking_container.empty()
+            
+            # Add the final answer to session history
+            st.session_state.messages.append({"role": "assistant", "content": final_answer})
 
-if __name__ == "__main__":
-    main()
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+            thinking_container.empty()
