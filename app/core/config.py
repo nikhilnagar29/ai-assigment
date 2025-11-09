@@ -16,14 +16,27 @@ DB_USER = os.environ.get("DB_USER", "chinook")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "chinook")
 
 # Database host configuration:
-# - If DB_HOST is explicitly set, use it (highest priority)
-# - If running inside Docker container, use "db" (Docker service name)
-# - Otherwise, default to "localhost" (for local development)
+# Smart detection: Try Docker first, fall back to localhost
 DB_HOST = os.environ.get("DB_HOST")
 if not DB_HOST:
     # Check if we're running inside a Docker container
     _is_docker = os.path.exists("/.dockerenv")
-    DB_HOST = "db" if _is_docker else "localhost"
+    if _is_docker:
+        DB_HOST = "db"  # Docker service name
+    else:
+        # Running locally - try to detect if database is accessible
+        import socket
+        # First try 'db' (in case of Docker network)
+        try:
+            socket.create_connection(("db", 5432), timeout=1)
+            DB_HOST = "db"
+        except (socket.gaierror, socket.timeout, OSError):
+            # If 'db' fails, use localhost
+            DB_HOST = "localhost"
+            print("⚠️  Running locally. Using localhost for database connection.")
+            print("   If database connection fails, make sure you have:")
+            print("   1. Started the database: docker-compose up -d db")
+            print("   2. Set DB_HOST=localhost in your .env file")
 
 DB_PORT = os.environ.get("DB_PORT", "5432")
 DB_NAME = os.environ.get("DB_NAME", "chinook")
@@ -32,7 +45,15 @@ DB_NAME = os.environ.get("DB_NAME", "chinook")
 DB_URL_SQL_AGENT = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # Print connection info for debugging (without password)
-print(f"Database connection configured: postgresql://{DB_USER}:***@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+print("=" * 60)
+print("DATABASE CONNECTION CONFIGURATION")
+print("=" * 60)
+print(f"Host: {DB_HOST}")
+print(f"Port: {DB_PORT}")
+print(f"Database: {DB_NAME}")
+print(f"User: {DB_USER}")
+print(f"Full URL: postgresql://{DB_USER}:***@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+print("=" * 60)
 
 
 # --- File Paths ---

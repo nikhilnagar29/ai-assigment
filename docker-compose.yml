@@ -13,12 +13,12 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./database/Chinook_PostgreSql.sql:/docker-entrypoint-initdb.d/Chinook_PostgreSql.sql
+    - ./database/Chinook_PostgreSql.sql:/docker-entrypoint-initdb.d/Chinook_PostgreSql.sql
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U chinook -d chinook"]
       interval: 10s
-      timeout: 5s
+      timeout: 5s 
       retries: 5
 
   app:
@@ -29,8 +29,14 @@ services:
       - "8501:8501"
     volumes:
       - ./app:/app
-    env_file:
-      - ./app/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: chinook
+      DB_USER: chinook
+      DB_PASSWORD: chinook
+    # env_file:
+    #   - ./app/.env
     depends_on:
       db:
         condition: service_healthy

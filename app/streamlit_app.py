@@ -35,10 +35,10 @@ def extract_text_content(message_content):
                     text_parts.append(block['text'])
             elif isinstance(block, str):
                 text_parts.append(block)
-        return '\n'.join(text_parts) if text_parts else str(message_content)
+        return '\n'.join(text_parts) if text_parts else ""
     else:
         # Fallback: convert to string
-        return str(message_content)
+        return str(message_content) if message_content else ""
 
 
 # --- Page Config ---
@@ -89,49 +89,54 @@ if prompt := st.chat_input("Ask a multi-part question..."):
         config = {"configurable": {"thread_id": st.session_state.thread_id}}
         
         # Prepare the input for the graph
-        # We pass the new prompt as a HumanMessage with initial iteration count
         graph_input = {
             "messages": [HumanMessage(content=prompt)],
-            "iteration_count": 0,
-            "tool_responses": []
+            "iteration_count": 0
         }
         
         final_answer = ""
+        tool_calls_made = []
         
         try:
             # Use .stream() to get live updates
             for chunk in runnable_graph.stream(
                 graph_input, 
                 config=config,
-                stream_mode="values" # This mode gives us the full state
+                stream_mode="values"
             ):
-                # 'chunk' is the state of the graph *after* a node runs
-                
-                if "tool_calls" in chunk and chunk["tool_calls"]:
-                    # This is the output of the Agent node
-                    # Handle different tool_call formats
-                    tool_names = []
-                    for tc in chunk["tool_calls"]:
-                        if isinstance(tc, dict):
-                            tool_names.append(tc.get("name", "unknown"))
-                        else:
-                            # LangChain tool call object
-                            tool_names.append(getattr(tc, "name", str(tc)))
-                    if tool_names:
-                        thinking_container.markdown(f"🧠 Calling tool(s): **{', '.join(tool_names)}**")
-                
-                elif "tool_responses" in chunk and chunk["tool_responses"]:
-                    # This is the output of the Tool Executor
-                    thinking_container.markdown("✅ Tools finished. Agent is processing results...")
-                
-                elif "messages" in chunk:
-                    # This is the final answer from the agent
+                # Handle tool calls
+                if "messages" in chunk:
                     last_message = chunk["messages"][-1]
-                    if isinstance(last_message, AIMessage):
-                        # Extract text content, handling structured formats
-                        final_answer = extract_text_content(last_message.content)
+                    
+                    # Check if this message has tool calls
+                    if isinstance(last_message, AIMessage) and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+                        tool_names = []
+                        for tc in last_message.tool_calls:
+                            if isinstance(tc, dict):
+                                tool_names.append(tc.get("name", "unknown"))
+                            else:
+                                tool_names.append(getattr(tc, "name", "unknown"))
+                        
+                        if tool_names:
+                            tool_calls_made.extend(tool_names)
+                            thinking_container.markdown(f"🧠 Calling: **{', '.join(tool_names)}**")
+                    
+                    # Check if this is a ToolMessage (response from tools)
+                    elif hasattr(last_message, '__class__') and last_message.__class__.__name__ == 'ToolMessage':
+                        thinking_container.markdown("✅ Tools finished. Generating answer...")
+                    
+                    # Check if this is the final answer
+                    elif isinstance(last_message, AIMessage):
+                        # Extract text content
+                        content = extract_text_content(last_message.content)
+                        
+                        # Only treat as final answer if it has actual text content
+                        # (not just tool_calls with no text)
+                        if content and not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
+                            final_answer = content
 
             print(f"Final answer: {final_answer}")
+            print(f"Tools called: {tool_calls_made}")
 
             # Write the final answer
             if final_answer:
@@ -141,8 +146,17 @@ if prompt := st.chat_input("Ask a multi-part question..."):
                 # Add the final answer to session history
                 st.session_state.messages.append({"role": "assistant", "content": final_answer})
             else:
-                thinking_container.markdown("⚠️ No response received from agent.")
+                # This shouldn't happen, but just in case
+                error_msg = "⚠️ No response received from agent."
+                if tool_calls_made:
+                    error_msg += f" (Tools called: {', '.join(set(tool_calls_made))})"
+                thinking_container.markdown(error_msg)
+                st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            error_msg = f"An error occurred: {e}"
+            st.error(error_msg)
             thinking_container.empty()
+            print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()

@@ -11,28 +11,103 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 
-
-
 from core.config import llm, DB_URL_SQL_AGENT
 from core.tools.feedback_tool import create_feedback_rag_tool
 from core.tools.product_tool import create_product_rag_tool
 
 # --- 1. Define the Tools ---
 
-# --- SQL Tools ---
-# Connect to the DB (with error handling)
+# --- SQL Tools with Enhanced Descriptions ---
+print("\n" + "=" * 60)
+print("ATTEMPTING TO CONNECT TO SQL DATABASE")
+print("=" * 60)
+
+sql_tools = []
 try:
+    # First, try to import required libraries
+    print("Step 1: Checking required libraries...")
+    import psycopg2
+    print("✅ psycopg2 is installed")
+    
+    print("\nStep 2: Attempting database connection...")
+    print(f"Connection URL: {DB_URL_SQL_AGENT}")
+    
+    # Try to create the database connection
+    # Note: PostgreSQL table names are case-sensitive. Your schema uses lowercase.
     db = SQLDatabase.from_uri(
         DB_URL_SQL_AGENT,
-        include_tables=["Artist", "Album", "Track", "Customer", "Employee", "Invoice", "InvoiceLine"]
+        include_tables=["artist", "album", "track", "customer", "employee", "invoice", "invoice_line"]
     )
+    
+    print("✅ Database connection successful!")
+    
+    print("\nStep 3: Testing database access...")
+    # Try to list tables to verify connection works
+    tables = db.get_usable_table_names()
+    print(f"✅ Found {len(tables)} tables: {tables}")
+    
+    print("\nStep 4: Creating SQL toolkit...")
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-    sql_tools = toolkit.get_tools()  # returns ListSQLDatabaseTool, InfoSQLDatabaseTool, QuerySQLDatabaseTool, etc.
-    print("Connected to SQL Database for Agent.")
+    raw_sql_tools = toolkit.get_tools()
+    print(f"✅ Created {len(raw_sql_tools)} SQL tools")
+    
+    # Wrap SQL tools with better descriptions
+    print("\nStep 5: Enhancing tool descriptions...")
+    for tool in raw_sql_tools:
+        print(f"   - {tool.name}")
+        if tool.name == "sql_db_list_tables":
+            tool.description = (
+                "Use this FIRST for any business/sales question. Lists all available database tables "
+                "(customer, invoice, artist, album, track, employee, etc.). "
+                "Use for questions about: sales, customers, invoices, artists, albums, employees."
+            )
+        elif tool.name == "sql_db_schema":
+            tool.description = (
+                "Get the schema/structure of database tables. Use this AFTER sql_db_list_tables "
+                "to understand table columns before querying. Input: comma-separated table names."
+            )
+        elif tool.name == "sql_db_query":
+            tool.description = (
+                "Execute SQL queries on the business database. Use for questions about: "
+                "customer count, sales data, invoice totals, artist/album sales, employee info. "
+                "Input: a valid SQL SELECT query."
+            )
+        elif tool.name == "sql_db_query_checker":
+            tool.description = (
+                "Validates SQL queries before execution. Use this to check if your SQL is correct."
+            )
+        sql_tools.append(tool)
+    
+    print(f"\n✅ SQL DATABASE CONNECTION SUCCESSFUL!")
+    print(f"✅ Loaded {len(sql_tools)} SQL tools")
+    
+except ImportError as e:
+    print(f"\n❌ ERROR: Missing required library!")
+    print(f"Error: {e}")
+    print("\nTo fix this, run:")
+    print("   pip install psycopg2-binary")
+    print("   or")
+    print("   apt-get install python3-psycopg2")
+    
 except Exception as e:
-    print(f"Warning: Could not connect to database: {e}")
-    print("SQL tools will not be available. Make sure the database is running.")
-    sql_tools = []
+    print(f"\n❌ ERROR: Could not connect to database!")
+    print(f"Error Type: {type(e).__name__}")
+    print(f"Error Message: {e}")
+    print("\nPossible causes:")
+    print("1. Database is not running")
+    print("   Fix: docker-compose up -d db")
+    print("2. Wrong credentials in .env file")
+    print("   Fix: Check DB_USER, DB_PASSWORD, DB_NAME")
+    print("3. Wrong host/port")
+    print("   Fix: Check DB_HOST and DB_PORT")
+    print("4. Database 'chinook' does not exist")
+    print("   Fix: Create the database first")
+    print("\nSQL tools will NOT be available until database is connected.")
+    import traceback
+    print("\nFull traceback:")
+    traceback.print_exc()
+
+print("=" * 60 + "\n")
 
 # --- RAG Tools ---
 try:
@@ -49,272 +124,190 @@ tools = sql_tools + rag_tools
 if not tools:
     raise RuntimeError("No tools available! Please check database connection and vector stores.")
 
+# Debug: Print all tool names and descriptions
+print(f"\n✅ Loaded {len(tools)} tools:")
+for tool in tools:
+    print(f"   - {tool.name}: {tool.description[:80]}...")
+print()
+
 
 # --- 2. Define the Graph State ---
 class AgentState(TypedDict):
-    input: str
-    chat_history: list
-    messages: Annotated[list, lambda x, y: x + y]
-    tool_calls: list
-    tool_responses: Annotated[list, lambda x, y: x + y]  # Accumulate tool responses
+    messages: Annotated[list, lambda x, y: x + y]  # Accumulate all messages
     iteration_count: int  # Track iterations to prevent infinite loops
 
 
-# --- 3. Define the Graph Nodes ---
-
-# --- NODE 1: The ROUTER ---
-class ToolRouter(BaseModel):
-    """A router to select the appropriate tool(s) for a user query."""
-    tool_names: List[Literal[
-        "sql_db_list_tables", 
-        "sql_db_schema", 
-        "sql_db_query", 
-        "customer_feedback_search", 
-        "product_details_search"
-    ]] = Field(
-        ..., 
-        description="A list of tool names to call. Only use the tools provided."
-    )
-
-structured_llm_router = llm.with_structured_output(ToolRouter)
-
-def router_node(state: AgentState):
-    """Analyzes the user's query and decides which tools to call."""
-    print("--- CALLING ROUTER NODE ---")
-    
-    # We build a prompt from the last human message
-    # This ensures the router only focuses on the *newest* question
-    last_message = state['messages'][-1].content
-    
-    prompt = f"""
-    You are an expert router. Your job is to analyze the user's query and 
-    determine which tool(s) are needed to answer it.
-
-    The available tools are:
-    1. sql_db_list_tables: Use this to see what tables are in the database.
-    2. sql_db_schema: Use this to see the schema of a specific table.
-    3. sql_db_query: Use this to run a SQL query on the database.
-    4. customer_feedback_search: For questions about customer opinions, feedback, or complaints (about BMW iX).
-    5. product_details_search: For questions about BMW iX product features or technical specs.
-
-    User Query: "{last_message}"
-
-    Respond with a list of the *exact* tool names required.
-    
-    *Examples:*
-    - "How many customers?" -> ["sql_db_list_tables"] (to see tables first)
-    - "What's the schema for the Invoice table?" -> ["sql_db_schema"]
-    - "What do people think of the steering wheel?" -> ["customer_feedback_search"]
-    - "What is the charging time and are there any complaints about it?" -> ["product_details_search", "customer_feedback_search"]
-    - "Show me sales for AC/DC and any feedback for them" -> ["sql_db_list_tables"] (then the agent will use schema and query tools)
-    
-    *IMPORTANT*: For any SQL-related question, the agent's first step should be to list the tables.
-    So, if the query mentions 'sales', 'artists', 'invoices', etc., ALWAYS include 'sql_db_list_tables' in your response.
-    """
-    
-    router_output = structured_llm_router.invoke([HumanMessage(content=prompt)])
-    
-    tool_calls = []
-    if router_output.tool_names:
-        # The agent will decide the input for these tools in the next step
-        for tool_name in router_output.tool_names:
-            tool_calls.append(
-                ToolMessage(
-                    tool_call_id=f"call_{tool_name}", 
-                    content=last_message, # Pass the original query as context
-                    name=tool_name
-                )
-            )
-    
-    print(f"Router decided to call: {router_output.tool_names}")
-    return {"tool_calls": tool_calls, "messages": []} # Clear messages to avoid loop
-
-
-# --- NODE 2: The Agent Node (Tool Caller) ---
-# This node uses the main LLM to decide *how* to call the tools
-# --- NODE 2: The Agent Node (Tool Caller) ---
-# This node uses the main LLM to decide *how* to call the tools
+# --- 3. Define the Agent Node ---
 def agent_node(state: AgentState):
     """
-    The main "worker" node. It processes tool results and either calls more tools
-    or provides a final answer.
+    The main agent that decides which tools to call or provides a final answer.
     """
-    print("--- CALLING AGENT/TOOL NODE ---")
+    print("\n--- AGENT NODE ---")
     
     # Check iteration count to prevent infinite loops
     iteration_count = state.get('iteration_count', 0)
-    MAX_ITERATIONS = 5  # Maximum number of tool call iterations
+    MAX_ITERATIONS = 5
     
     if iteration_count >= MAX_ITERATIONS:
         print(f"⚠️ Maximum iterations ({MAX_ITERATIONS}) reached. Forcing final answer.")
-        # Force a final answer
         final_response = AIMessage(
-            content="I apologize, but I'm having difficulty processing your request. Please try rephrasing your question or breaking it into smaller parts."
+            content="I apologize, but I'm having difficulty processing your request. Please try rephrasing your question."
         )
-        return {"messages": [final_response], "tool_calls": []}
+        return {"messages": [final_response], "iteration_count": iteration_count}
     
-    # Build the conversation context
     messages = state.get('messages', [])
-    tool_responses = state.get('tool_responses', [])
     
-    # Check if we have tool responses
-    has_tool_responses = len(tool_responses) > 0
+    # Enhanced system prompt that explicitly instructs when to use tools
+    system_prompt = """You are a helpful assistant for BMW with access to multiple data sources.
+
+**YOUR TOOLS:**
+
+1. **BMW iX Product & Feedback Tools:**
+   - customer_feedback_search: Customer opinions, complaints, feedback about BMW iX
+   - product_details_search: Technical specs, features, details about BMW iX
+
+2. **Business Database (SQL) Tools - Use for business/sales questions:**
+   - sql_db_list_tables: **START HERE** for any sales/business question - lists available tables
+   - sql_db_schema: Get table structure/columns (use after listing tables)
+   - sql_db_query: Execute SQL queries for sales data, customer counts, invoices, etc.
+
+**DECISION RULES:**
+
+🚗 **BMW iX questions** → Use product_details_search and/or customer_feedback_search
+   - "What's the charging time?"
+   - "What do people think about steering?"
+   - "Tell me about BMW iX features"
+
+💼 **Business/Sales questions** → ALWAYS start with sql_db_list_tables
+   - "How many customers?" → sql_db_list_tables
+   - "What are total sales?" → sql_db_list_tables
+   - "Show me invoices" → sql_db_list_tables
+   - "Artists with most sales" → sql_db_list_tables
+
+**CRITICAL:**
+- For ANY question about numbers, counts, sales, invoices, artists, albums → Use SQL tools!
+- ALWAYS call sql_db_list_tables FIRST for business questions
+- After getting tool results, provide a clear, synthesized answer
+- Assume "the car" = BMW iX
+"""
     
-    # Combine messages and tool responses for context
-    chat_history = messages + tool_responses
-
-    # --- THIS IS THE NEW LOGIC ---
-    if has_tool_responses:
-        # We have tool results. Our ONLY job is to synthesize an answer.
-        # We do NOT bind tools, so the LLM is *forced* to answer.
-        print("Agent is in 'Answering Mode'. Tools are disabled.")
-        system_prompt = """You are a helpful assistant for BMW. Your job is to answer the user's question using the available tools.
-
-Available tools:
-- customer_feedback_search: Use this for any question about customer feedback, opinions, or complaints.
-- product_details_search: Use this for any question about product features or technical specs.
-- SQL tools: Query the database for sales, customers, invoices, etc.
-
-IMPORTANT Instructions:
-1. **You MUST assume the user is asking about the BMW iX** if they ask about "the car", "BMW car", "bmq car", or any other general car question.
-2. ALWAYS try to use 'customer_feedback_search' or 'product_details_search' for any question about feedback, features, specs, or the car.
-3. Call the appropriate tool(s) to get information.
-"""
-        agent_prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history")
-        ])
-        
-        # Note: We use the base 'llm', NOT 'llm.bind_tools(tools)'
-        agent_chain = agent_prompt | llm 
-        
-    else:
-        # This is the FIRST run. We need to call tools.
-        print("Agent is in 'Tool-Calling Mode'.")
-        system_prompt = """You are a helpful assistant for BMW. Use the available tools to answer the user's question.
-
-Available tools:
-- customer_feedback_search: Search for customer feedback about BMW iX
-- product_details_search: Find product specifications and features
-- SQL tools: Query the database for sales, customers, invoices, etc.
-
-Instructions:
-1. Call the appropriate tool(s) to get information.
-"""
-        agent_prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history")
-        ])
-        
-        # We bind the tools to the LLM
-        agent_llm = llm.bind_tools(tools)
-        agent_chain = agent_prompt | agent_llm
-    # --- END OF NEW LOGIC ---
-
+    agent_prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="messages")
+    ])
+    
+    # ALWAYS bind tools to allow the agent to use them
+    agent_llm = llm.bind_tools(tools)
+    agent_chain = agent_prompt | agent_llm
     
     # Call the agent
-    response_message = agent_chain.invoke({
-        "chat_history": chat_history
-    })
+    response_message = agent_chain.invoke({"messages": messages})
     
-    # If the LLM responded with tool calls, we return them (but increment iteration count)
-    if response_message.tool_calls:
-        # This should now only happen if 'has_tool_responses' was False
-        tool_names = [tc.get('name', 'unknown') if isinstance(tc, dict) else getattr(tc, 'name', 'unknown') for tc in response_message.tool_calls]
-        print(f"Agent decided to call tools: {tool_names} (iteration {iteration_count + 1})")
+    print(f"Agent response type: {type(response_message)}")
+    print(f"Has tool_calls: {hasattr(response_message, 'tool_calls') and bool(response_message.tool_calls)}")
+    
+    # Check if the agent wants to use tools
+    if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
+        tool_names = [tc.get('name') if isinstance(tc, dict) else tc.name for tc in response_message.tool_calls]
+        print(f"🔧 Agent calling tools: {tool_names} (iteration {iteration_count + 1})")
         
         return {
-            "tool_calls": response_message.tool_calls,
+            "messages": [response_message],
             "iteration_count": iteration_count + 1
         }
     
-    # If the LLM responded with a final answer, we return it
-    print("Agent provided a final answer.")
-    return {"messages": [response_message], "tool_calls": []}
+    # No tool calls - this is the final answer
+    print("✅ Agent provided final answer")
+    return {
+        "messages": [response_message],
+        "iteration_count": iteration_count
+    }
 
 
-
-
-# --- NODE 3: The Tool Executor Node ---
+# --- 4. Define the Tool Executor Node ---
 def tool_executor_node(state: AgentState):
     """
-    This node *only* executes tools.
+    Executes the tools requested by the agent.
     """
-    print("--- CALLING TOOL EXECUTOR NODE ---")
-    tool_map = {tool.name: tool for tool in tools}
-    new_tool_responses = []  # New responses from this execution
+    print("\n--- TOOL EXECUTOR NODE ---")
     
-    for tool_call in state["tool_calls"]:
-        # Handle both dict and object formats for tool_calls
-        if isinstance(tool_call, dict):
-            tool_name = tool_call.get("name")
-            tool_args = tool_call.get("args", {})
-            tool_call_id = tool_call.get("id", "unknown")
-        else:
-            # LangChain ToolCall object
-            tool_name = getattr(tool_call, "name", None)
-            tool_args = getattr(tool_call, "args", {})
-            tool_call_id = getattr(tool_call, "id", "unknown")
+    messages = state.get('messages', [])
+    last_message = messages[-1]
+    
+    # Create a map of tool names to tool objects
+    tool_map = {tool.name: tool for tool in tools}
+    
+    tool_responses = []
+    
+    # Execute each tool call
+    for tool_call in last_message.tool_calls:
+        tool_name = tool_call.get("name") if isinstance(tool_call, dict) else tool_call.name
+        tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else tool_call.args
+        tool_call_id = tool_call.get("id", "unknown") if isinstance(tool_call, dict) else tool_call.id
         
-        if not tool_name:
-            print(f"Warning: Skipping tool call with no name: {tool_call}")
-            continue
-            
+        print(f"🔧 Executing: {tool_name}")
+        print(f"   Args: {tool_args}")
+        
         tool_to_call = tool_map.get(tool_name)
         
-        if tool_to_call:
-            # Extract query string from tool_args
-            # Tools expect a string, but agent might pass dict like {'arg1': 'query'} or {'query': 'text'}
-            query_string = None
-            if isinstance(tool_args, dict):
-                # Try common keys
-                query_string = tool_args.get('query') or tool_args.get('arg1') or tool_args.get('input') or tool_args.get('question')
-                # If still None, try to get the first string value
-                if not query_string:
-                    for key, value in tool_args.items():
-                        if isinstance(value, str):
-                            query_string = value
-                            break
-                # If still None, convert dict to string
-                if not query_string:
-                    query_string = str(tool_args)
-            elif isinstance(tool_args, str):
-                query_string = tool_args
-            else:
-                query_string = str(tool_args)
+        if not tool_to_call:
+            error_msg = f"Tool '{tool_name}' not found. Available: {list(tool_map.keys())}"
+            print(f"❌ {error_msg}")
+            tool_responses.append(
+                ToolMessage(
+                    tool_call_id=tool_call_id,
+                    content=error_msg,
+                    name=tool_name
+                )
+            )
+            continue
+        
+        # Extract the query/input from tool_args
+        query = None
+        if isinstance(tool_args, dict):
+            # Try common parameter names
+            query = (tool_args.get('query') or 
+                    tool_args.get('arg1') or 
+                    tool_args.get('input') or 
+                    tool_args.get('question') or
+                    tool_args.get('tool_input'))
             
-            print(f"Executing tool: {tool_name} with query: '{query_string[:100]}...'")
-            try:
-                # Invoke tool with the query string
-                response = tool_to_call.invoke(query_string)
-                
-                # Format the response nicely
-                response_text = str(response)
-                if len(response_text) > 1000:
-                    response_text = response_text[:1000] + "... (truncated)"
-                
-                new_tool_responses.append(
-                    ToolMessage(
-                        tool_call_id=tool_call_id,
-                        content=f"Tool '{tool_name}' returned: {response_text}",
-                        name=tool_name
-                    )
+            # If still no query, get first string value
+            if not query:
+                for value in tool_args.values():
+                    if isinstance(value, str):
+                        query = value
+                        break
+        elif isinstance(tool_args, str):
+            query = tool_args
+        
+        if not query:
+            query = str(tool_args)
+        
+        print(f"   Query: '{query[:100]}...'")
+        
+        try:
+            # Execute the tool
+            response = tool_to_call.invoke(query)
+            response_text = str(response)
+            
+            # Truncate long responses
+            if len(response_text) > 2000:
+                response_text = response_text[:2000] + "...(truncated)"
+            
+            print(f"✅ Tool '{tool_name}' succeeded. Response length: {len(str(response))}")
+            
+            tool_responses.append(
+                ToolMessage(
+                    tool_call_id=tool_call_id,
+                    content=response_text,
+                    name=tool_name
                 )
-                print(f"✅ Tool '{tool_name}' executed successfully. Response length: {len(str(response))}")
-            except Exception as e:
-                error_msg = f"Error executing tool {tool_name}: {e}"
-                print(f"❌ {error_msg}")
-                new_tool_responses.append(
-                    ToolMessage(
-                        tool_call_id=tool_call_id,
-                        content=f"Error: {error_msg}",
-                        name=tool_name
-                    )
-                )
-        else:
-            error_msg = f"Tool '{tool_name}' not found. Available tools: {list(tool_map.keys())}"
-            print(f"⚠️ {error_msg}")
-            new_tool_responses.append(
+            )
+        except Exception as e:
+            error_msg = f"Error executing {tool_name}: {str(e)}"
+            print(f"❌ {error_msg}")
+            tool_responses.append(
                 ToolMessage(
                     tool_call_id=tool_call_id,
                     content=error_msg,
@@ -322,61 +315,62 @@ def tool_executor_node(state: AgentState):
                 )
             )
     
-    # Return new tool responses (they will be accumulated by the reducer)
-    return {"tool_responses": new_tool_responses, "tool_calls": []}
+    return {"messages": tool_responses}
 
 
-# --- 4. Define the Graph Edges (Conditional Logic) ---
+# --- 5. Define Conditional Logic ---
 def should_continue(state: AgentState):
     """
-    This is our main conditional edge. It decides whether to
-    call tools again or to finish and go to the final generator.
+    Determines whether to continue calling tools or end.
     """
-    if state.get("tool_calls"):
-        # If the agent node produced tool calls, we go execute them
+    messages = state.get('messages', [])
+    last_message = messages[-1] if messages else None
+    
+    # If the last message has tool calls, continue to tool execution
+    if last_message and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        print("→ Routing to tools")
         return "continue"
-    else:
-        # If the agent node produced a final answer, we are done
-        return "end"
+    
+    # Otherwise, we're done
+    print("→ Routing to END")
+    return "end"
 
-# --- 5. Assemble the Graph ---
+
+# --- 6. Assemble the Graph ---
 def create_graph():
     """
-    This function assembles all the nodes and edges into the final graph.
+    Assembles the graph with proper routing.
     """
+    print("\n=== Creating LangGraph ===")
     
     workflow = StateGraph(AgentState)
-
-    # We only have two main nodes now:
-    # 1. "agent": The LLM worker that decides what to do
-    # 2. "tools": The executor that runs the tools
+    
+    # Add nodes
     workflow.add_node("agent", agent_node)
     workflow.add_node("tools", tool_executor_node)
-
-    # The entry point is the "agent"
+    
+    # Set entry point
     workflow.set_entry_point("agent")
-
-    # This is the conditional routing
+    
+    # Add conditional routing from agent
     workflow.add_conditional_edges(
         "agent",
         should_continue,
         {
-            "continue": "tools",  # If tools need to be called, go to 'tools'
-            "end": END            # If no tools, end the graph
+            "continue": "tools",
+            "end": END
         }
     )
-
-    # After the "tools" node runs, it *always* goes back to the "agent"
-    # to analyze the results and decide what to do next.
+    
+    # After tools execute, always return to agent
     workflow.add_edge("tools", "agent")
-
-    # Compile the graph
-    print("Compiling LangGraph...")
-    graph = workflow.compile(
-        checkpointer=MemorySaver() # This gives our graph persistent memory
-    )
-    print("LangGraph compiled successfully.")
+    
+    # Compile with memory
+    graph = workflow.compile(checkpointer=MemorySaver())
+    
+    print("✅ LangGraph compiled successfully\n")
     return graph
 
-# Create the runnable graph object for our app to import
+
+# Create the runnable graph
 runnable_graph = create_graph()
